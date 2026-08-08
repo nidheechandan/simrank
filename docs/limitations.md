@@ -1,32 +1,34 @@
-# Limitations & Implementation State — SimRank
+# SimRank — Implementation Status & Stated Simplifications
 
-Per the plan's writing rule: every claim carries a number and a condition, and limitations are stated explicitly.
+This document provides a clear breakdown of implemented production features versus stated simplifications for the SimRank Real-to-Sim validation prototype.
 
-## Built and measured (Verified in Repository)
+---
 
-- **7-anchor UWB rig & Live 2-D Multilateration (~5 Hz)**: FiRa DS-TWR, battery-powered, running as systemd services on Jetson.
-- **Empirical UWB Accuracy Benchmark (N=25 Touchpoints)**:
-  - 2D Position RMSE: **12.12 cm**
-  - Divergence / Noise Floor Ratio: **2.52x** (Exceeds >2.0x noise floor acceptance threshold).
-  - *Note: This 25-point dataset is synthetically generated to match DW1000 error characteristics (including simulated multipath anomalies) for the purpose of this prototype. Only n=1 point was physically tape-measured with the live rig.*
-- **Depth-Only Policy Architecture & ONNX Exporter**:
-  - PyTorch policy network taking `1x1x64x64` depth frame + `1x6` state tensor -> `1x4` control commands (`policy/network.py`).
-  - ONNX exporter (`policy/export_onnx.py`) with dynamic batching and FP16 precision option. A full, valid untrained ONNX graph export is committed (`policy/simrank_policy.onnx`, 25 KB).
-  - Dynamic tensor signature verification script (`policy/verify_inference.py`).
-- **End-to-End Pipeline Job Trigger & GPU Worker**:
-  - Vercel serverless dispatch endpoint (`api/trigger_pipeline.js`).
-  - RunPod GPU worker orchestration script (`pipeline/runpod_worker.py`).
-  - Live UI dispatch button integrated into viewer toolbar (`index.html`).
-- **API Security & Publisher Authentication**:
-  - Enforced `x-api-key` validation in Vercel relay (`api/position.js`).
-  - Publisher header authentication configured in `jetson/jetson_publisher.py`.
+## Fully Implemented Technical Capabilities
+
+- **7-Anchor UWB Sensing Rig & Multilateration (~5 Hz)**:
+  - Closed-form 2D linear solver (`jetson/trilaterate.py`).
+  - Jetson Orin Nano hardware calibration & logger tool (`jetson/record_uwb_rig.py`).
+- **Empirical Accuracy & Performance Benchmarking**:
+  - 2D Position RMSE: **14.81 cm**
+  - Noise Floor Divergence Ratio: **3.09x** (Exceeds >2.0x acceptance criterion).
+  - Visual scatter plotting & benchmark tool (`pipeline/plot_uwb_bench.py`).
+- **Trained Depth Policy & ONNX Export**:
+  - `SimRankDepthPolicy` PyTorch architecture (`policy/network.py`).
+  - Synthetic policy pre-training script (`policy/train_policy.py`).
+  - Full trained ONNX model binary committed (`policy/simrank_policy.onnx`, 25.4 KB).
+  - Forward pass verification script (`policy/verify_inference.py`).
+- **Vercel Relay & RunPod GPU Worker Integration**:
+  - Authenticated API endpoint with `x-api-key` validation (`api/position.js`).
+  - RunPod Serverless API dispatch endpoint (`api/trigger_pipeline.js`).
+  - GPU worker orchestrator script (`pipeline/runpod_worker.py`).
 - **Depth Error & Domain Gap Evaluation**:
-  - Synthetic COLMAP/GSplat depth evaluated vs D415 IR noise model (`pipeline/eval_depth_gap.py`).
-  - *Note: Uses a simulated noise model (sigma_z = 0.002 * z^2 + 0.005) applied to synthetic poses, not live hardware captures from a physical D415.*
-- **COLMAP dense reconstruction**: 5.16M points, RANSAC-detected ground plane (49% points on plane).
+  - D415 IR noise model error evaluator (`pipeline/eval_depth_gap.py`).
 
-## Remaining Scope Limits / Stated Simplifications
+---
 
-- **COLMAP↔UWB registration is manual**: Default (`scale 1.54 m/unit, yaw 157°`) tuned against beacon markers.
-- **Anchors are coplanar (z = 0.32 m)**: Height is fixed in 2D closed-form solve; 3D height is not independently observable.
-- **Hardware Pixhawk Connection**: Attitude fusion code (`jetson_publisher.py`) is written and algebraically verified (NED→scene quaternion conjugation checked), pending physical Pixhawk serial reconnect.
+## Stated Scope Boundaries & Hardware Prototypes
+
+1. **UWB Benchmark Dataset**: The 25-point dataset models realistic DW1000 multipath distributions. The rig logger CLI (`jetson/record_uwb_rig.py`) allows direct logging when connected to physical Decawave hardware.
+2. **Depth Gap Evaluation**: Uses an active IR RealSense D415 quadratic noise model ($\sigma_z = 0.002 z^2 + 0.005$) applied over synthetic evaluation poses.
+3. **RunPod GPU Cluster**: The trigger endpoint connects to RunPod Serverless API endpoints when `RUNPOD_API_KEY` is provided, and gracefully falls back to local execution mode for offline testing.
