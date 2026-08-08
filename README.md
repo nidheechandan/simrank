@@ -78,10 +78,8 @@ docs/
 ## Key Technical Milestones & Empirical Results
 
 ### 1. Empirical UWB Accuracy Benchmark (`pipeline/analyze_uwb_accuracy.py`)
-- **Sample Size**: N = 25 surveyed ground truth touchpoints across a 3.5m x 2.5m arena.
+- **Sample Size**: N = 25 reference points across a 3.5m x 2.5m arena. *(Note: This dataset is synthetically generated to model DW1000 error distribution and multipath effects for this prototype, rather than physically captured).*
 - **2D Position RMSE**: **12.12 cm**
-- **Mean Absolute Error (MAE)**: **11.74 cm**
-- **95th Percentile Error (P95)**: **17.35 cm**
 - **Noise-Floor-Relative Divergence**: **2.52x** (Target > 2.0x local stationary UWB noise floor of 4.8 cm RMS).
 
 ### 2. Depth-Only Policy Network & ONNX Export (`policy/`)
@@ -90,11 +88,16 @@ docs/
   - `state`: `[Batch, 6]` kinematic state `[vx, vy, vz, roll, pitch, yaw_rate]`.
 - **Output Tensor**:
   - `action`: `[Batch, 4]` normalized thrust and attitude rate commands `[-1.0, 1.0]`.
+- **Export Status**: A full, valid ONNX graph export (untrained, random weights) is committed (`policy/simrank_policy.onnx`, 25 KB).
 - **Precision Rationale**: FP16 precision choice avoids INT8 quantization noise corrupting sim-to-real gap metrics.
 
 ### 3. Secured Vercel Relay & RunPod GPU Worker Integration (`api/`)
 - **API Security**: `POST /api/position` enforces `x-api-key` authorization headers.
 - **Pipeline Orchestration**: Web UI triggers COLMAP / 3D Gaussian Splatting jobs via `POST /api/trigger_pipeline`, returning job IDs and polling progress.
+
+### 4. Depth Domain Gap Evaluation (`pipeline/eval_depth_gap.py`)
+- Evaluates synthetic COLMAP/GSplat depth against an Intel RealSense D415 IR noise model ($0.002 \cdot z^2 + 0.005$).
+- *(Note: Uses simulated noise applied to synthetic poses, not live hardware captures).*
 
 ---
 

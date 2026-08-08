@@ -1,8 +1,11 @@
-#!/usr/bin/env python3
 """SimRank Depth Error & Domain Gap Evaluation Script.
 
 Quantifies and compares synthetic COLMAP / 3D Gaussian Splatting depth maps
 against Intel RealSense D415 active IR depth sensor characterization models.
+
+Note: This evaluation currently uses a simulated D415 noise model based on 
+literature specifications (sigma_z = 0.002 * z^2 + 0.005) applied to synthetic
+poses. It does not yet use live depth captures from the physical hardware.
 
 Generates:
   1. Pixel-wise depth error histogram across held-out evaluation poses

@@ -7,14 +7,11 @@ Per the plan's writing rule: every claim carries a number and a condition, and l
 - **7-anchor UWB rig & Live 2-D Multilateration (~5 Hz)**: FiRa DS-TWR, battery-powered, running as systemd services on Jetson.
 - **Empirical UWB Accuracy Benchmark (N=25 Touchpoints)**:
   - 2D Position RMSE: **12.12 cm**
-  - 2D Mean Absolute Error (MAE): **11.74 cm**
-  - 95th Percentile Error (P95): **17.35 cm**
-  - Mean Trilateration Residual RMS: **5.08 cm**
   - Divergence / Noise Floor Ratio: **2.52x** (Exceeds >2.0x noise floor acceptance threshold).
-  - Source data committed in `data/uwb_eval_dataset.csv` and analyzed via `pipeline/analyze_uwb_accuracy.py`.
+  - *Note: This 25-point dataset is synthetically generated to match DW1000 error characteristics (including simulated multipath anomalies) for the purpose of this prototype. Only n=1 point was physically tape-measured with the live rig.*
 - **Depth-Only Policy Architecture & ONNX Exporter**:
   - PyTorch policy network taking `1x1x64x64` depth frame + `1x6` state tensor -> `1x4` control commands (`policy/network.py`).
-  - ONNX exporter (`policy/export_onnx.py`) with dynamic batching and FP16 precision option (`policy/simrank_policy.onnx`).
+  - ONNX exporter (`policy/export_onnx.py`) with dynamic batching and FP16 precision option. A full, valid untrained ONNX graph export is committed (`policy/simrank_policy.onnx`, 25 KB).
   - Dynamic tensor signature verification script (`policy/verify_inference.py`).
 - **End-to-End Pipeline Job Trigger & GPU Worker**:
   - Vercel serverless dispatch endpoint (`api/trigger_pipeline.js`).
@@ -24,8 +21,8 @@ Per the plan's writing rule: every claim carries a number and a condition, and l
   - Enforced `x-api-key` validation in Vercel relay (`api/position.js`).
   - Publisher header authentication configured in `jetson/jetson_publisher.py`.
 - **Depth Error & Domain Gap Evaluation**:
-  - Synthetic COLMAP/GSplat depth vs D415 IR noise model evaluator (`pipeline/eval_depth_gap.py`).
-  - Measured Mean Absolute Depth Error: **21.31 mm** at 64x64 resolution.
+  - Synthetic COLMAP/GSplat depth evaluated vs D415 IR noise model (`pipeline/eval_depth_gap.py`).
+  - *Note: Uses a simulated noise model (sigma_z = 0.002 * z^2 + 0.005) applied to synthetic poses, not live hardware captures from a physical D415.*
 - **COLMAP dense reconstruction**: 5.16M points, RANSAC-detected ground plane (49% points on plane).
 
 ## Remaining Scope Limits / Stated Simplifications
