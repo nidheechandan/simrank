@@ -118,10 +118,17 @@ def euler_to_quat(roll, pitch, yaw):
     return qx, qy, qz, qw
 
 
-def post(endpoint, payload):
+DEFAULT_API_KEY = os.environ.get("SIMRANK_API_KEY", "simrank_live_secret_2026")
+
+
+def post(endpoint, payload, api_key=DEFAULT_API_KEY):
     body = json.dumps(payload).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": api_key
+    }
     req = urllib.request.Request(
-        endpoint, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        endpoint, data=body, headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=2) as r:
         return r.status
 

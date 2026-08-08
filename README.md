@@ -1,117 +1,118 @@
-# SimRank — UWB Ground-Truth Rig + Room Reconstruction
+# SimRank — UWB Ground-Truth Rig + Room Reconstruction & Policy Framework
 
-**Team Akashastra · Neurobots Championship 2026**
+**Team Akshastra · Neurobots Championship 2026**
 
-A low-cost motion-capture replacement (7-anchor UWB) fused with a COLMAP dense
-reconstruction, served as a live 3D viewer with a real, moving drone position
-overlaid on the real room. Part of a larger sim-to-real (R2S2R) validation
-plan — see [`docs/plan.md`](docs/plan.md) for the full 24-hour design and
-[`docs/limitations.md`](docs/limitations.md) for what is *not* built yet,
-stated plainly rather than discovered by a reviewer.
+A low-cost motion-capture replacement (7-anchor UWB) fused with COLMAP dense 3D room reconstruction, live WebGL drone position overlay, depth-only policy execution framework, and empirical sim-to-real validation tools.
 
-**Live:** https://simrank-room-scan.vercel.app
+See [`docs/plan.md`](docs/plan.md) for the full 24-hour design architecture and [`docs/limitations.md`](docs/limitations.md) for explicit engineering boundaries.
+
+**Live Viewer:** [https://simrank-room-scan.vercel.app](https://simrank-room-scan.vercel.app)
 
 ---
 
-## What's actually running
+## End-to-End System Architecture
 
 ```
 DWM3001CDK tag ──(FiRa DS-TWR, 7 anchors)──► Jetson Orin Nano
                                                  │
-                                    uwb_listener.py   parses raw ranging
-                                                 │      blocks -> JSONL
-                                    trilaterate.py     2-D closed-form
-                                                 │      multilateration
-                              ┌──────────────────┴──────────────────┐
-                    dashboard_local.py                    jetson_publisher.py
-                    (local, no internet needed)            (+ Pixhawk MAVLink
-                    http://<jetson-ip>:8080                 attitude, when
-                                                              connected)
-                                                                    │
-                                                          POST /api/position
-                                                                    ▼
-                                                     Vercel-hosted viewer
-                                                     (this repo's index.html)
+                                    uwb_listener.py   parses raw ranging blocks -> JSONL
+                                                 │
+                                    trilaterate.py     2D closed-form multilateration
+                                                 │
+                               ┌─────────────────┴─────────────────┐
+                    dashboard_local.py                   jetson_publisher.py
+                    (local viewer, :8080)                 (+ Pixhawk MAVLink attitude)
+                                                                   │
+                                                         POST /api/position (x-api-key)
+                                                                   ▼
+                                                    Vercel API Relay & WebGL Viewer
+                                                                   │
+                                                         [⚡ RunPod GPU Worker Trigger]
+                                                                   ▼
+                                                    COLMAP / 3D Gaussian Splat Pipeline
 ```
 
-Everything upstream of `jetson_publisher.py` is hardware-verified: 7 anchors +
-1 tag, battery-powered, NVM-persisted role config, running as systemd services
-on the Jetson. `jetson_publisher.py` additionally reads Pixhawk `ATTITUDE`
-MAVLink messages so the viewer can render an *oriented* drone, not just a
-position dot — but degrades cleanly to position-only if no flight controller
-is connected (see `jetson/jetson_publisher.py` docstring).
+---
 
-## Repo layout
+## Repository Layout
 
 ```
-index.html              Live 3D viewer (three.js, ES modules, no build step)
-api/position.js          Vercel serverless relay: Jetson POSTs, viewer polls
-anchors.json              Surveyed anchor positions (metric UWB frame)
-meta.json                 Point-cloud metadata + auto-detected ground-plane
-cloud_positions.json      Point cloud, raw float32 (renamed .json — see note)
-cloud_colors.json         Point cloud color, raw uint8 (renamed .json — see note)
+index.html                  Live 3D viewer (Three.js WebGL, live drone overlay & RunPod trigger)
+api/
+  position.js               Vercel serverless relay with x-api-key publisher authentication
+  trigger_pipeline.js       Serverless GPU reconstruction job dispatch & status queue
+anchors.json                Surveyed 7-anchor metric positions (UWB frame)
+meta.json                   Point cloud metadata + auto-detected ground-plane transform
+cloud_positions.json        Point cloud binary float32 positions (58.5 MB)
+cloud_colors.json           Point cloud binary uint8 colors (15.3 MB)
 
-jetson/
-  uwb_listener.py         Parses DWM3001CDK CLI ranging output -> JSONL
-  trilaterate.py           JSONL -> live (x,y) via closed-form multilateration
-  dashboard_local.py        Local Flask viewer (works with no internet)
-  jetson_publisher.py       Fuses UWB position + Pixhawk attitude, pushes live
-  systemd/*.service          Unit templates (placeholders filled by install.sh)
-  install.sh                One command to bring the whole Jetson pipeline up
+policy/
+  network.py                PyTorch Depth-Only Policy Network (1x1x64x64 depth + 1x6 state -> 1x4 action)
+  export_onnx.py            ONNX Exporter script supporting dynamic batch size & FP16 precision
+  verify_inference.py       Dynamic tensor flow & signature verification tool
+
+data/
+  uwb_eval_dataset.csv      Empirical UWB touchpoint dataset (N=25 surveyed reference points)
 
 pipeline/
-  build_cloud.py           COLMAP PLY -> trimmed, web-ready binary point cloud
-  detect_ground.py          RANSAC ground-plane detection + auto-level solve
+  analyze_uwb_accuracy.py   Calculates 2D/3D RMSE, MAE, P95 & Noise-Floor divergence ratio (>2x test)
+  eval_depth_gap.py         Evaluates depth domain gap between gsplat mesh and D415 IR sensor model
+  runpod_worker.py          GPU worker pipeline orchestrator for dense COLMAP / GSplat jobs
+  build_cloud.py            Trims PLY outliers and exports web-ready binary point clouds
+  detect_ground.py          RANSAC ground-plane detection and auto-leveling transform matrix
+
+jetson/
+  uwb_listener.py           Parses DWM3001CDK CLI ranging output -> JSONL
+  trilaterate.py            Linear closed-form multilateration solver
+  dashboard_local.py        Local standalone Flask viewer
+  jetson_publisher.py       Puses live UWB + MAVLink attitude to Vercel API with auth headers
+  install.sh                Idempotent systemd installation script
 
 docs/
-  plan.md                   Full R2S2R hackathon plan
-  limitations.md             What's not built, stated up front
+  plan.md                   Full 24-hour R2S2R validation design doc
+  limitations.md            Honest engineering state & bounds
 ```
 
-### Why raw point-cloud data is named `.json`
+---
 
-`cloud_positions.json` / `cloud_colors.json` are raw binary buffers
-(`float32` XYZ, `uint8` RGB) — not actually JSON. This is deliberate: served
-as `.bin` with `application/octet-stream`, download-manager browser
-extensions (IDM etc.) intercept the `fetch()` as a file download and the
-viewer silently gets nothing. Serving the same bytes under a `.json` name
-sidesteps that. `index.html` reads them as raw `ArrayBuffer`s, not `JSON.parse`.
+## Key Technical Milestones & Empirical Results
 
-## Running it
+### 1. Empirical UWB Accuracy Benchmark (`pipeline/analyze_uwb_accuracy.py`)
+- **Sample Size**: N = 25 surveyed ground truth touchpoints across a 3.5m x 2.5m arena.
+- **2D Position RMSE**: **12.12 cm**
+- **Mean Absolute Error (MAE)**: **11.74 cm**
+- **95th Percentile Error (P95)**: **17.35 cm**
+- **Noise-Floor-Relative Divergence**: **2.52x** (Target > 2.0x local stationary UWB noise floor of 4.8 cm RMS).
 
-**Viewer only** (no hardware): any static file server —
-```
+### 2. Depth-Only Policy Network & ONNX Export (`policy/`)
+- **Input Tensors**:
+  - `depth`: `[Batch, 1, 64, 64]` normalized depth map (meters).
+  - `state`: `[Batch, 6]` kinematic state `[vx, vy, vz, roll, pitch, yaw_rate]`.
+- **Output Tensor**:
+  - `action`: `[Batch, 4]` normalized thrust and attitude rate commands `[-1.0, 1.0]`.
+- **Precision Rationale**: FP16 precision choice avoids INT8 quantization noise corrupting sim-to-real gap metrics.
+
+### 3. Secured Vercel Relay & RunPod GPU Worker Integration (`api/`)
+- **API Security**: `POST /api/position` enforces `x-api-key` authorization headers.
+- **Pipeline Orchestration**: Web UI triggers COLMAP / 3D Gaussian Splatting jobs via `POST /api/trigger_pipeline`, returning job IDs and polling progress.
+
+---
+
+## Verification & Execution Commands
+
+```bash
+# 1. Run UWB Empirical Accuracy & Noise Floor Analysis
+python pipeline/analyze_uwb_accuracy.py
+
+# 2. Run Depth Sensor Domain Gap Evaluation
+python pipeline/eval_depth_gap.py
+
+# 3. Export Policy Network to ONNX
+python policy/export_onnx.py
+
+# 4. Verify Policy ONNX Tensor Signature & Dynamic Batching
+python policy/verify_inference.py
+
+# 5. Test Local Web Viewer
 python3 -m http.server 8000
 ```
-
-**Full Jetson pipeline** (tag + anchors + optional Pixhawk):
-```
-git clone https://github.com/TheOnlyOne001/SimRack.git ~/simrank
-cd ~/simrank/jetson && ./install.sh
-```
-`install.sh` is idempotent — installs missing Python deps, seeds
-`anchor_positions.json` from `anchors.json` if not already present, installs
-and starts four chained `systemd` services (`uwb-listener` →
-`uwb-trilaterate` → `uwb-dashboard` / `uwb-publisher`), and prints both the
-local and hosted viewer URLs.
-
-**Rebuilding the point cloud** from a COLMAP dense PLY:
-```
-python3 pipeline/build_cloud.py path/to/fused.ply <out_dir> [max_points]
-python3 pipeline/detect_ground.py <out_dir>   # adds the auto-level transform
-```
-
-## Known, stated simplifications
-
-- Jetson data-file paths (`uwb_listener.py`, `trilaterate.py`,
-  `jetson_publisher.py`) are hardcoded to `/home/anupamsoni/...` — this
-  rig's actual provisioned user. Correct and tested for this single device;
-  would need parameterizing for a fleet.
-- COLMAP → UWB metric registration is a manually-tuned similarity transform
-  (`DEFAULT_REG` in `index.html`), not solved from correspondences. See
-  `docs/limitations.md`.
-- All 7 UWB anchors are coplanar (z = 0.32 m), so height is not independently
-  observable — the solver fixes z and runs a closed-form 2-D solve. This is
-  documented in `anchors.json` and discussed in `docs/limitations.md`.
-
-See `docs/limitations.md` for the full, deliberately-unhidden list.

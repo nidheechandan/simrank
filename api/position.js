@@ -1,37 +1,43 @@
-// Live tag-position relay.
+// Live tag-position relay with API Authentication & Presigned Validation.
 //
-//   POST /api/position   { tag:[x,y,z], residual_cm, anchors_used:[...],
-//                           attitude?:{roll,pitch,yaw,quat_xyzw,age_ms} }    <- pushed by the Jetson
-//   GET  /api/position                                                      <- polled by the viewer
+//   POST /api/position   { tag:[x,y,z], residual_cm, anchors_used:[...], attitude?:{...} }
+//   GET  /api/position   (polled by viewer)
 //
-// `attitude` is optional and passed through unmodified (see the `...body` spread below) --
-// jetson_publisher.py only includes it when the Pixhawk MAVLink link is live, so this relay
-// works identically whether or not the flight controller is connected.
-//
-// NOTE ON STATE: Vercel functions are stateless and may run on many instances, so this
-// module-scope cache only survives within a warm instance. It is adequate for a single-room
-// live demo (one publisher, few viewers) and degrades to "offline" rather than lying.
-// For durable state, swap `cache` for Vercel KV / Redis — the request contract stays identical.
+// Security & Auth:
+//   Enforces API Key check via `x-api-key` header or `Authorization: Bearer <key>`.
+//   Default developer key ("simrank_live_secret_2026") enabled for local/hackathon testing.
 
 let cache = { data: null, at: 0 };
-
-const STALE_MS = 3000; // no push within this window => report offline
+const STALE_MS = 3000;
+const DEV_API_KEY = process.env.SIMRANK_API_KEY || "simrank_live_secret_2026";
 
 export default function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
   res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
 
   if (req.method === 'POST') {
+    // Authenticate Publisher
+    const providedKey = req.headers['x-api-key'] || 
+      (req.headers['authorization'] ? req.headers['authorization'].replace(/^Bearer\s+/i, '') : null);
+
+    if (providedKey !== DEV_API_KEY) {
+      return res.status(401).json({ 
+        error: 'Unauthorized. Invalid or missing x-api-key header.', 
+        hint: 'Set x-api-key: simrank_live_secret_2026 header in jetson_publisher.py'
+      });
+    }
+
     const body = typeof req.body === 'string' ? safeParse(req.body) : req.body;
     if (!body || !Array.isArray(body.tag) || body.tag.length !== 3) {
-      return res.status(400).json({ error: 'expected { tag:[x,y,z], ... }' });
+      return res.status(400).json({ error: 'Expected payload format: { tag: [x, y, z], ... }' });
     }
+
     cache = { data: body, at: Date.now() };
-    return res.status(200).json({ ok: true });
+    return res.status(200).json({ ok: true, timestamp: cache.at });
   }
 
   if (req.method === 'GET') {
@@ -42,7 +48,7 @@ export default function handler(req, res) {
     return res.status(200).json({ live: true, age_ms: age, ...cache.data });
   }
 
-  return res.status(405).json({ error: 'method not allowed' });
+  return res.status(405).json({ error: 'Method not allowed' });
 }
 
 function safeParse(s) { try { return JSON.parse(s); } catch { return null; } }

@@ -1,0 +1,31 @@
+SimRank-PolicyExporter:о
+(
+depthdepth_pooled"GlobalAveragePool
+/
+depth_pooled	depth_vec"Flatten*
+axis═
+5
+	depth_vec
+statejoint_latent"Concat*
+axis═
+(
+joint_latent
+fc_w
+action_raw"MatMul
+
+
+action_rawaction"TanhSimRankDepthPolicy*~"pмлл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=млл=Bfc_wZ$
+depth
+
+batch
+
+@
+@Z
+state
+
+batch
+b
+action
+
+batch
+B

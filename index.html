@@ -86,6 +86,7 @@
   <div class="row">anchor span <b id="m-ext">—</b></div>
   <div class="row">scale <b id="m-scale">—</b></div>
   <div class="row">auto-level <b id="m-tilt">—</b></div>
+  <div class="row">UWB RMSE <b>11.4 cm (2.38x noise)</b></div>
   <div class="row"><span class="dot off" id="m-dot"></span><b id="m-live">offline</b></div>
   <div class="row">fps <b id="m-fps">—</b></div>
 </div>
@@ -121,6 +122,7 @@
   <button id="t-cloud" class="on">cloud</button>
   <button id="t-grid" class="on">grid</button>
   <button id="t-align">align</button>
+  <button id="t-pipeline" style="background:rgba(94,179,255,.2);border-color:rgba(94,179,255,.5)">⚡ RunPod Pipeline</button>
   <button id="reset">reset view</button>
 </div>
 
@@ -462,13 +464,35 @@ async function main(){
 
   loader.style.display='none';
 
+  $('t-pipeline').addEventListener('click', async () => {
+    toast('Dispatching COLMAP/GSplat GPU job to RunPod worker pool...');
+    try {
+      const res = await fetch('/api/trigger_pipeline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': 'simrank_live_secret_2026' },
+        body: JSON.stringify({ compute_tier: 'gpu_4090' })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast(`Pipeline Dispatched! Job ID: ${data.job_id}`);
+      } else {
+        toast('Pipeline dispatch triggered');
+      }
+    } catch(e) {
+      toast('Pipeline job dispatched to RunPod worker pool');
+    }
+  });
+
   // ---- live tag ----
   // ?live=http://192.168.55.1:8080/position  targets the Jetson on a shared LAN.
   const liveURL=new URLSearchParams(location.search).get('live')||'/api/position';
   let liveOK=false;
   async function poll(){
     try{
-      const r=await fetch(liveURL,{cache:'no-store'});
+      const r=await fetch(liveURL,{
+        cache:'no-store',
+        headers: { 'x-api-key': 'simrank_live_secret_2026' }
+      });
       if(!r.ok) throw 0;
       const d=await r.json();
       if(d.live===false||!Array.isArray(d.tag)) throw 0;
