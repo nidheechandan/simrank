@@ -1,0 +1,16 @@
+[Unit]
+Description=UWB Live Trilateration Engine
+After=uwb-listener.service
+Requires=uwb-listener.service
+
+[Service]
+Type=simple
+User=__USER__
+ExecStart=/usr/bin/python3 __HOME__/simrank/jetson/trilaterate.py
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

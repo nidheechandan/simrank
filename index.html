@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SimRank · Room Reconstruction + UWB Frame</title>
+<style>
+  :root{
+    --bg:#0a0c10; --fg:#e8edf4; --muted:#7d8794; --accent:#5eb3ff;
+    --beacon:#ffb454; --tag:#4ade80;
+    --panel:rgba(16,20,26,.84); --border:rgba(255,255,255,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
+  #view{position:absolute;inset:0}
+  canvas{display:block}
+  #vignette{position:absolute;inset:0;pointer-events:none;z-index:2;
+    background:radial-gradient(ellipse at 50% 45%,transparent 55%,rgba(0,0,0,.55) 100%)}
+  .panel{position:absolute;z-index:5;background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;backdrop-filter:blur(12px)}
+
+  #title{top:20px;left:20px;padding:12px 16px}
+  #title h1{margin:0;font-size:14px;font-weight:600;letter-spacing:.2px}
+  #title p{margin:3px 0 0;font-size:11.5px;color:var(--muted)}
+
+  #meta{top:20px;right:20px;padding:12px 16px;text-align:right}
+  #meta .row{font-size:11.5px;color:var(--muted);line-height:1.7}
+  #meta .row b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  .dot.on{background:var(--tag);box-shadow:0 0 8px var(--tag)}
+  .dot.off{background:#4a5361}
+
+  #dock{bottom:20px;left:20px;padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  #dock label{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:7px}
+  #dock input[type=range]{width:92px;accent-color:var(--accent)}
+  #dock button{background:rgba(255,255,255,.06);color:var(--fg);border:1px solid var(--border);
+    border-radius:6px;font-size:11.5px;padding:4px 9px;font-family:inherit;cursor:pointer}
+  #dock button:hover{background:rgba(255,255,255,.12)}
+  #dock button.on{background:rgba(94,179,255,.18);border-color:rgba(94,179,255,.45);color:#cfe8ff}
+  .sep{width:1px;height:20px;background:var(--border)}
+
+  #align{bottom:78px;left:20px;padding:13px 15px;display:none;width:330px}
+  #align.show{display:block}
+  #align h2{margin:0 0 8px;font-size:11.5px;font-weight:600;letter-spacing:.3px;color:var(--accent)}
+  #align .hint{font-size:10.5px;color:var(--muted);line-height:1.55;margin:0 0 11px}
+  #align .grp{font-size:10px;color:#5d6773;letter-spacing:.6px;margin:11px 0 4px;text-transform:uppercase}
+  #align .ctl{display:flex;align-items:center;gap:9px;margin:5px 0;font-size:11px;color:var(--muted)}
+  #align .ctl span:first-child{width:42px}
+  #align .ctl input[type=range]{flex:1;accent-color:var(--accent)}
+  #align .val{width:62px;text-align:right;color:var(--fg);font-variant-numeric:tabular-nums;font-size:11px}
+  #align .ht{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);margin:5px 0}
+  #align .ht input{width:64px;background:rgba(255,255,255,.06);border:1px solid var(--border);
+    color:var(--fg);border-radius:5px;padding:3px 6px;font-family:inherit;font-size:11px}
+  #align .btns{display:flex;gap:7px;margin-top:11px}
+  #align .btns button{flex:1;background:rgba(255,255,255,.06);color:var(--fg);border:1px solid var(--border);
+    border-radius:6px;font-size:11px;padding:5px;cursor:pointer;font-family:inherit}
+  #align .btns button:hover{background:rgba(255,255,255,.12)}
+  #lvlnote{font-size:10px;color:#5d6773;margin-top:9px;line-height:1.5}
+
+  #note{position:absolute;bottom:22px;right:20px;z-index:5;font-size:11px;color:var(--muted);
+    max-width:330px;text-align:right;line-height:1.6}
+
+  #loader{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:14px;background:var(--bg)}
+  #loader .lbl{font-size:12.5px;color:var(--muted);letter-spacing:.3px}
+  #bar{width:260px;height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+  #bar div{height:100%;width:0;background:var(--accent);transition:width .12s linear}
+  #loader.err .lbl{color:#ff7b72}
+  #toast{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:30;
+    background:rgba(94,179,255,.16);border:1px solid rgba(94,179,255,.4);color:#cfe8ff;
+    padding:7px 14px;border-radius:7px;font-size:11.5px;opacity:0;transition:opacity .25s;pointer-events:none}
+  #toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="view"></div><div id="vignette"></div>
+
+<div id="title" class="panel">
+  <h1>SimRank · Room Reconstruction + UWB Frame</h1>
+  <p>COLMAP MVS · 7-anchor UWB · orbit: drag · pan: right-drag · zoom: scroll</p>
+</div>
+
+<div id="meta" class="panel">
+  <div class="row">points <b id="m-pts">—</b></div>
+  <div class="row">anchor span <b id="m-ext">—</b></div>
+  <div class="row">scale <b id="m-scale">—</b></div>
+  <div class="row">auto-level <b id="m-tilt">—</b></div>
+  <div class="row"><span class="dot off" id="m-dot"></span><b id="m-live">offline</b></div>
+  <div class="row">fps <b id="m-fps">—</b></div>
+</div>
+
+<div id="align" class="panel">
+  <h2>COLMAP → UWB REGISTRATION</h2>
+  <p class="hint">The ground plane was detected automatically and levelled, so only the
+    remaining 3 intuitive DOF need setting: metric scale, heading, and position.</p>
+
+  <div class="grp">Metric scale</div>
+  <div class="ht">room height <input type="number" id="a-height" step="0.05" min="1" max="12"> m
+    <span style="margin-left:auto;color:#5d6773" id="hu">—</span></div>
+  <div class="ctl"><span>scale</span><input type="range" id="a-scale" min="5" max="300" step="1"><span class="val" id="v-scale"></span></div>
+
+  <div class="grp">Orientation</div>
+  <div class="ctl"><span>heading</span><input type="range" id="a-yaw" min="-180" max="180" step="0.5"><span class="val" id="v-yaw"></span></div>
+  <div class="ctl"><span>pitch</span><input type="range" id="a-pitch" min="-30" max="30" step="0.25"><span class="val" id="v-pitch"></span></div>
+  <div class="ctl"><span>roll</span><input type="range" id="a-roll" min="-30" max="30" step="0.25"><span class="val" id="v-roll"></span></div>
+
+  <div class="grp">Position (metres, UWB frame)</div>
+  <div class="ctl"><span>x</span><input type="range" id="a-x" min="-15" max="15" step="0.05"><span class="val" id="v-x"></span></div>
+  <div class="ctl"><span>y</span><input type="range" id="a-y" min="-15" max="15" step="0.05"><span class="val" id="v-y"></span></div>
+  <div class="ctl"><span>z</span><input type="range" id="a-z" min="-5" max="5" step="0.05"><span class="val" id="v-z"></span></div>
+
+  <div class="btns"><button id="a-copy">copy JSON</button><button id="a-reset">reset</button></div>
+  <div id="lvlnote"></div>
+</div>
+
+<div id="dock" class="panel">
+  <label>size <input type="range" id="ptsize" min="25" max="400" value="100"></label>
+  <div class="sep"></div>
+  <button id="t-beacons" class="on">beacons</button>
+  <button id="t-cloud" class="on">cloud</button>
+  <button id="t-grid" class="on">grid</button>
+  <button id="t-align">align</button>
+  <button id="reset">reset view</button>
+</div>
+
+<div id="note">Anchors drawn at surveyed metric positions (0.58 m tile grid, all z = 0.32 m).
+Ground plane auto-levelled by RANSAC; scale, heading and offset set manually —
+correspondence-based registration is pending.</div>
+
+<div id="toast"></div>
+<div id="loader"><div class="lbl" id="loadlbl">loading point cloud</div><div id="bar"><div></div></div></div>
+
+<script type="importmap">
+{ "imports": {
+  "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $=id=>document.getElementById(id);
+const loader=$('loader'),loadlbl=$('loadlbl'),bar=$('bar').firstElementChild;
+const fail=m=>{loader.style.display='flex';loader.classList.add('err');
+  loadlbl.textContent=m;bar.parentElement.style.display='none';};
+let toastT;
+const toast=msg=>{const t=$('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1800);};
+
+/* UWB survey frame is x-east / y-north / z-up; three.js is y-up.
+   One conversion at the boundary: (x, y, z_up) -> (x, z_up, -y).       */
+const toThree=(x,y,z)=>new THREE.Vector3(x,z,-y);
+
+/* MAVLink ATTITUDE quaternions are expressed in NED axes (x=north, y=east,
+   z=down) -- a different frame from both the UWB survey frame above AND
+   three.js. Converting a body *rotation* between frames (not just a point)
+   requires conjugating by the rotation that relates the two axis systems,
+   not just permuting components.
+
+   Composing NED -> UWB(east,north,up) -> three.js(x,y=up,z) gives a single
+   proper rotation (determinant +1, verified by hand) equal to a 120° turn
+   about the (1,1,-1) axis, i.e. the fixed quaternion below. Every attitude
+   sample is conjugated by this once. */
+const Q_NED_TO_THREE=new THREE.Quaternion(0.5,0.5,-0.5,0.5);
+function nedQuatToThree(xyzw){
+  const q=new THREE.Quaternion(...xyzw);
+  return Q_NED_TO_THREE.clone().multiply(q).multiply(Q_NED_TO_THREE.clone().invert());
+}
+
+async function grab(url,onFrac){
+  const r=await fetch(url);
+  if(!r.ok) throw new Error(`${url} → HTTP ${r.status}`);
+  const total=+r.headers.get('content-length')||0;
+  const reader=r.body.getReader();const parts=[];let got=0;
+  for(;;){const {done,value}=await reader.read();if(done)break;
+    parts.push(value);got+=value.length;if(total)onFrac(got/total);}
+  const out=new Uint8Array(got);let o=0;
+  for(const p of parts){out.set(p,o);o+=p.length;}
+  return out.buffer;
+}
+
+const VERT=`
+  uniform float uSize,uScale,uMinPx,uMaxPx;
+  attribute vec3 aColor; varying vec3 vColor; varying float vDist;
+  void main(){
+    vColor=aColor;
+    vec4 mv=modelViewMatrix*vec4(position,1.0);
+    float d=max(-mv.z,1e-4); vDist=d;
+    gl_PointSize=clamp(uSize*uScale/d,uMinPx,uMaxPx);
+    gl_Position=projectionMatrix*mv;
+  }`;
+const FRAG=`
+  uniform vec3 uFogColor; uniform float uFogNear,uFogFar;
+  varying vec3 vColor; varying float vDist;
+  void main(){
+    vec2 q=gl_PointCoord-0.5; float r2=dot(q,q);
+    if(r2>0.25) discard;
+    vec3 col=vColor*(1.0-r2*0.9);
+    col=mix(col,uFogColor,smoothstep(uFogNear,uFogFar,vDist)*0.75);
+    gl_FragColor=vec4(col,1.0);
+  }`;
+
+const REG_KEY='simrank.registration.v3';
+
+function labelSprite(text,color,size=0.5){
+  const c=document.createElement('canvas');c.width=128;c.height=64;
+  const g=c.getContext('2d');
+  g.font='bold 40px ui-sans-serif,Segoe UI,Roboto,sans-serif';
+  g.textAlign='center';g.textBaseline='middle';g.fillStyle=color;g.fillText(text,64,34);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial(
+    {map:new THREE.CanvasTexture(c),transparent:true,depthTest:false}));
+  s.scale.set(size,size/2,1);
+  return s;
+}
+
+async function main(){
+  const [meta,anchorDoc]=await Promise.all([
+    fetch('meta.json').then(r=>r.json()),
+    fetch('anchors.json').then(r=>r.json()),
+  ]);
+
+  let pf=0,cf=0;
+  const upd=()=>{bar.style.width=((pf*0.8+cf*0.2)*100).toFixed(1)+'%';};
+  // raw binary under .json names so download managers (IDM) don't hijack the fetch
+  const [posBuf,colBuf]=await Promise.all([
+    grab('cloud_positions.json',f=>{pf=f;upd();}),
+    grab('cloud_colors.json',   f=>{cf=f;upd();}),
+  ]);
+
+  let positions=new Float32Array(posBuf),colorsU8=new Uint8Array(colBuf),n=meta.n;
+  const want=+new URLSearchParams(location.search).get('points');
+  if(want>0&&want<n){
+    const step=n/want,np=new Float32Array(want*3),nc=new Uint8Array(want*3);
+    for(let i=0;i<want;i++){const s=Math.floor(i*step);
+      np[i*3]=positions[s*3];np[i*3+1]=positions[s*3+1];np[i*3+2]=positions[s*3+2];
+      nc[i*3]=colorsU8[s*3];nc[i*3+1]=colorsU8[s*3+1];nc[i*3+2]=colorsU8[s*3+2];}
+    positions=np;colorsU8=nc;n=want;
+  }
+
+  // ---- anchors → three.js space ----
+  const ids=Object.keys(anchorDoc.anchors).sort((a,b)=>+a-+b);
+  const aPts=ids.map(k=>toThree(...anchorDoc.anchors[k]));
+  const aBox=new THREE.Box3().setFromPoints(aPts);
+  const aCtr=aBox.getCenter(new THREE.Vector3());
+  const aSpanUWB=new THREE.Box3()
+    .setFromPoints(ids.map(k=>new THREE.Vector3(...anchorDoc.anchors[k])))
+    .getSize(new THREE.Vector3());
+  $('m-pts').textContent=n.toLocaleString();
+  $('m-ext').textContent=`${aSpanUWB.x.toFixed(2)} × ${aSpanUWB.y.toFixed(2)} m`;
+
+  const L=meta.level;                      // auto-levelling result (may be absent)
+  const heightUnits=L?L.height_units:null;
+  $('m-tilt').textContent=L?`${L.tilt_deg.toFixed(1)}° corrected`:'n/a';
+  $('hu').textContent=heightUnits?`= ${heightUnits.toFixed(3)} u`:'';
+  $('lvlnote').textContent=L
+    ? `Ground plane found by RANSAC on ${(meta.n).toLocaleString()} pts; COLMAP up was `
+      +`${L.tilt_deg.toFixed(1)}° from +Y — beyond what axis presets can correct.`
+    : 'No auto-level data in meta.json.';
+
+  const worldR=Math.max(aBox.getSize(new THREE.Vector3()).length()*0.75,6);
+
+  // ---- renderer ----
+  const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setSize(innerWidth,innerHeight);
+  renderer.outputColorSpace=THREE.LinearSRGBColorSpace;
+  $('view').appendChild(renderer.domElement);
+  renderer.domElement.addEventListener('webglcontextlost',e=>{e.preventDefault();
+    fail('WebGL context lost — retry with ?points=1000000');});
+
+  const scene=new THREE.Scene();scene.background=new THREE.Color(0x0a0c10);
+  const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.02,worldR*40);
+
+  // ---- point cloud ----
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(positions,3));
+  geo.setAttribute('aColor',new THREE.BufferAttribute(colorsU8,3,true));
+  geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(...meta.center),meta.radius*2);
+
+  const bufH=()=>renderer.getDrawingBufferSize(new THREE.Vector2()).y;
+  const uniforms={
+    uSize:{value:0.006},uScale:{value:bufH()/2},
+    uMinPx:{value:1.0},uMaxPx:{value:48.0},
+    uFogColor:{value:new THREE.Color(0x0a0c10)},
+    uFogNear:{value:worldR*1.2},uFogFar:{value:worldR*4.5},
+  };
+  const cloud=new THREE.Points(geo,new THREE.ShaderMaterial(
+    {uniforms,vertexShader:VERT,fragmentShader:FRAG}));
+
+  /* Transform chain (innermost first):
+       pre  : translate by -centroid            (COLMAP units)
+       lvl  : rotate floor normal onto +Y, then drop floor to y=0
+       reg  : user scale -> roll/pitch/yaw -> translate   (into the metric UWB frame)  */
+  const pre=new THREE.Group(); pre.add(cloud);
+  const lvl=new THREE.Group(); lvl.add(pre);
+  const reg=new THREE.Group(); reg.add(lvl);
+  scene.add(reg);
+
+  if(L){
+    pre.position.fromArray(L.pre_translate);
+    lvl.quaternion.set(...L.quat_xyzw);
+    lvl.position.fromArray(L.post_translate);
+  }else{
+    pre.position.copy(new THREE.Vector3(...meta.center)).multiplyScalar(-1);
+  }
+
+  // ---- UWB beacons ----
+  const beacons=new THREE.Group();scene.add(beacons);
+  const pulses=[];
+  ids.forEach((id,i)=>{
+    const g=new THREE.Group();g.position.copy(aPts[i]);
+    g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.085,1),
+      new THREE.MeshBasicMaterial({color:0xffb454})));
+    const beam=new THREE.Mesh(new THREE.CylinderGeometry(0.011,0.011,1.5,6),
+      new THREE.MeshBasicMaterial({color:0xffb454,transparent:true,opacity:0.20,depthWrite:false}));
+    beam.position.y=0.75;g.add(beam);
+    const ring=new THREE.Mesh(new THREE.RingGeometry(0.30,0.355,48),
+      new THREE.MeshBasicMaterial({color:0xffb454,transparent:true,opacity:0.6,
+        side:THREE.DoubleSide,depthWrite:false}));
+    ring.rotation.x=-Math.PI/2;
+    ring.position.y=-anchorDoc.anchors[id][2];     // sit on the z=0 floor
+    g.add(ring);pulses.push({ring,phase:i/ids.length});
+    const lab=labelSprite('A'+id,'#ffd9a0');lab.position.y=0.30;g.add(lab);
+    beacons.add(g);
+  });
+
+  // ---- live tag: rendered as an oriented quadcopter (Holybro H-Flow) ----
+  const tagGroup=new THREE.Group();tagGroup.visible=false;scene.add(tagGroup);
+  const droneMesh=new THREE.Group();tagGroup.add(droneMesh);   // gets the attitude quaternion
+
+  droneMesh.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.045,0),
+    new THREE.MeshBasicMaterial({color:0x4ade80})));
+  const armMat=new THREE.MeshBasicMaterial({color:0x8892a0});
+  const rotorMatFront=new THREE.MeshBasicMaterial({color:0xff7b72});   // marks the nose
+  const rotorMatRear=new THREE.MeshBasicMaterial({color:0x8892a0});
+  // X-frame: arms at +-45 deg in the body XZ plane; -Z is forward (front rotors red)
+  [[1,-1,1],[-1,-1,1],[1,-1,-1],[-1,-1,-1]].forEach(([sx,sy,sz])=>{
+    const ax=sx*0.11, az=sz*0.11;
+    const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.007,0.007,0.155,6),armMat);
+    arm.position.set(ax*0.5,0,az*0.5);
+    arm.rotation.z=Math.atan2(0,1); arm.rotation.set(0,Math.atan2(ax,az),Math.PI/2);
+    droneMesh.add(arm);
+    const rotor=new THREE.Mesh(new THREE.TorusGeometry(0.032,0.006,8,16),
+      sz<0?rotorMatFront:rotorMatRear);
+    rotor.position.set(ax,0,az); rotor.rotation.x=Math.PI/2;
+    droneMesh.add(rotor);
+  });
+  const noseTip=new THREE.Mesh(new THREE.ConeGeometry(0.02,0.05,8),rotorMatFront);
+  noseTip.position.set(0,0,-0.16); noseTip.rotation.x=-Math.PI/2;
+  droneMesh.add(noseTip);
+
+  const tagHalo=new THREE.Mesh(new THREE.SphereGeometry(0.19,20,16),
+    new THREE.MeshBasicMaterial({color:0x4ade80,transparent:true,opacity:0.22,depthWrite:false}));
+  tagGroup.add(tagHalo);
+  const tagLab=labelSprite('DRONE','#b6f5cd',0.7);tagLab.position.y=0.34;tagGroup.add(tagLab);
+
+  const TRAIL=240,trailPos=new Float32Array(TRAIL*3);
+  const trailGeo=new THREE.BufferGeometry();
+  trailGeo.setAttribute('position',new THREE.BufferAttribute(trailPos,3));
+  trailGeo.setDrawRange(0,0);
+  scene.add(new THREE.Line(trailGeo,new THREE.LineBasicMaterial(
+    {color:0x4ade80,transparent:true,opacity:0.55})));
+  let trailN=0,trailFilled=0;
+
+  // ---- 1 m floor grid ----
+  const span=Math.ceil(Math.max(aSpanUWB.x,aSpanUWB.y))+4;
+  const grid=new THREE.GridHelper(span,span,0x2a3442,0x18202b);
+  grid.material.transparent=true;grid.material.opacity=0.45;grid.material.depthWrite=false;
+  grid.position.set(aCtr.x,0,aCtr.z);
+  scene.add(grid);
+
+  // ---- controls ----
+  const controls=new OrbitControls(camera,renderer.domElement);
+  controls.enableDamping=true;controls.dampingFactor=0.075;
+  controls.rotateSpeed=0.75;controls.zoomSpeed=0.9;
+  controls.minDistance=0.3;controls.maxDistance=worldR*12;
+
+  // Manually registered against the real room (tape-measured height 3.5 m,
+  // visually aligned to the UWB beacon markers). Locked in as the shipped
+  // default so the page loads correctly aligned without relying on localStorage.
+  const DEFAULT_REG={scale:1.54,yaw:157,pitch:0,roll:0,x:0.8,y:4.8,z:-0.4,roomH:3.5};
+  let R={...DEFAULT_REG};
+  try{const s=localStorage.getItem(REG_KEY);if(s)R={...R,...JSON.parse(s)};}catch{}
+
+  function applyReg(){
+    reg.scale.setScalar(R.scale);
+    reg.rotation.set(THREE.MathUtils.degToRad(R.pitch),
+                     THREE.MathUtils.degToRad(R.yaw),
+                     THREE.MathUtils.degToRad(R.roll));
+    reg.position.copy(toThree(R.x,R.y,R.z));
+    uniforms.uSize.value=0.006*R.scale*(+$('ptsize').value/100);
+    $('m-scale').textContent=`1 u = ${R.scale.toFixed(3)} m`;
+    $('v-scale').textContent=R.scale.toFixed(3);
+    $('v-yaw').textContent=R.yaw.toFixed(1)+'°';
+    $('v-pitch').textContent=R.pitch.toFixed(2)+'°';
+    $('v-roll').textContent=R.roll.toFixed(2)+'°';
+    $('v-x').textContent=R.x.toFixed(2);
+    $('v-y').textContent=R.y.toFixed(2);
+    $('v-z').textContent=R.z.toFixed(2);
+    try{localStorage.setItem(REG_KEY,JSON.stringify(R));}catch{}
+  }
+  const sync=()=>{
+    $('a-scale').value=Math.round(R.scale*100);$('a-yaw').value=R.yaw;
+    $('a-pitch').value=R.pitch;$('a-roll').value=R.roll;
+    $('a-x').value=R.x;$('a-y').value=R.y;$('a-z').value=R.z;
+    $('a-height').value=R.roomH;
+  };
+
+  function frameView(){
+    const d=worldR/Math.sin(THREE.MathUtils.degToRad(camera.fov/2))*0.9;
+    camera.position.set(aCtr.x+d*0.45,d*0.55,aCtr.z+d*0.62);
+    controls.target.copy(aCtr);controls.update();
+  }
+
+  sync();applyReg();frameView();
+
+  // ---- UI ----
+  $('ptsize').addEventListener('input',applyReg);
+  $('reset').addEventListener('click',frameView);
+  $('t-beacons').addEventListener('click',e=>{beacons.visible=!beacons.visible;
+    e.target.classList.toggle('on',beacons.visible);});
+  $('t-cloud').addEventListener('click',e=>{reg.visible=!reg.visible;
+    e.target.classList.toggle('on',reg.visible);});
+  $('t-grid').addEventListener('click',e=>{grid.visible=!grid.visible;
+    e.target.classList.toggle('on',grid.visible);});
+  $('t-align').addEventListener('click',e=>{
+    e.target.classList.toggle('on',$('align').classList.toggle('show'));});
+
+  const bind=(el,key,f=parseFloat)=>$(el).addEventListener('input',e=>{
+    R[key]=f(e.target.value);applyReg();});
+  bind('a-scale','scale',v=>+v/100);
+  bind('a-yaw','yaw');bind('a-pitch','pitch');bind('a-roll','roll');
+  bind('a-x','x');bind('a-y','y');bind('a-z','z');
+
+  // room height -> metric scale (the honest way to fix scale: one tape measurement)
+  $('a-height').addEventListener('input',e=>{
+    const h=parseFloat(e.target.value);
+    if(!heightUnits||!(h>0))return;
+    R.roomH=h;R.scale=+(h/heightUnits).toFixed(4);
+    $('a-scale').value=Math.round(R.scale*100);applyReg();
+  });
+
+  $('a-reset').addEventListener('click',()=>{R={...DEFAULT_REG};sync();applyReg();toast('registration reset');});
+  $('a-copy').addEventListener('click',()=>{
+    const json=JSON.stringify({colmap_to_uwb:{
+      auto_level:L?{floor_normal_colmap:L.floor_normal_colmap,tilt_deg:+L.tilt_deg.toFixed(3),
+        quat_xyzw:L.quat_xyzw}:null,
+      scale_m_per_unit:+R.scale.toFixed(4),
+      room_height_m:R.roomH,
+      heading_deg:+R.yaw.toFixed(2),pitch_deg:+R.pitch.toFixed(2),roll_deg:+R.roll.toFixed(2),
+      translation_m:[+R.x.toFixed(3),+R.y.toFixed(3),+R.z.toFixed(3)]}},null,2);
+    navigator.clipboard?.writeText(json).then(()=>toast('registration JSON copied'),()=>toast('see console'));
+    console.log(json);
+  });
+
+  addEventListener('resize',()=>{
+    camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth,innerHeight);uniforms.uScale.value=bufH()/2;
+  });
+
+  loader.style.display='none';
+
+  // ---- live tag ----
+  // ?live=http://192.168.55.1:8080/position  targets the Jetson on a shared LAN.
+  const liveURL=new URLSearchParams(location.search).get('live')||'/api/position';
+  let liveOK=false;
+  async function poll(){
+    try{
+      const r=await fetch(liveURL,{cache:'no-store'});
+      if(!r.ok) throw 0;
+      const d=await r.json();
+      if(d.live===false||!Array.isArray(d.tag)) throw 0;
+      const p=toThree(...d.tag);
+      tagGroup.position.copy(p);tagGroup.visible=true;
+      if(d.attitude?.quat_xyzw){
+        droneMesh.quaternion.copy(nedQuatToThree(d.attitude.quat_xyzw));
+      } // else: leave last-known orientation (UWB gives no attitude on its own)
+      trailPos[trailN*3]=p.x;trailPos[trailN*3+1]=p.y;trailPos[trailN*3+2]=p.z;
+      trailN=(trailN+1)%TRAIL;trailFilled=Math.min(trailFilled+1,TRAIL);
+      trailGeo.setDrawRange(0,trailFilled);
+      trailGeo.attributes.position.needsUpdate=true;
+      liveOK=true;$('m-dot').className='dot on';
+      const res=d.residual_cm!=null?`±${(+d.residual_cm).toFixed(0)} cm`:'live';
+      const att=d.attitude?` · Pixhawk yaw ${(+d.attitude.yaw*180/Math.PI).toFixed(0)}°`:' · UWB only';
+      $('m-live').textContent=res+att;
+    }catch{
+      if(liveOK||$('m-live').textContent!=='offline'){
+        liveOK=false;tagGroup.visible=false;
+        $('m-dot').className='dot off';$('m-live').textContent='offline';
+      }
+    }
+  }
+  poll();setInterval(poll,200);
+
+  // ---- loop ----
+  let last=performance.now(),frames=0,acc=0;
+  (function tick(now){
+    requestAnimationFrame(tick);
+    const dt=now-last;last=now;acc+=dt;frames++;
+    if(acc>=500){$('m-fps').textContent=Math.round(frames*1000/acc);frames=0;acc=0;}
+    const t=now/1000;
+    for(const p of pulses){
+      const k=(t*0.5+p.phase)%1;
+      p.ring.scale.setScalar(0.35+k*1.5);
+      p.ring.material.opacity=0.55*(1-k);
+    }
+    if(tagGroup.visible){
+      tagHalo.scale.setScalar(1+Math.sin(t*4)*0.12);
+      tagHalo.material.opacity=0.28-0.10*Math.sin(t*4);
+    }
+    controls.update();
+    renderer.render(scene,camera);
+  })(performance.now());
+}
+main().catch(e=>{console.error(e);fail('error: '+e.message);});
+</script>
+</body>
+</html>

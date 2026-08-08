@@ -1,0 +1,15 @@
+[Unit]
+Description=UWB Live Position Dashboard (local, Flask, port 8080)
+After=uwb-trilaterate.service
+
+[Service]
+Type=simple
+User=__USER__
+ExecStart=/usr/bin/python3 __HOME__/simrank/jetson/dashboard_local.py
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

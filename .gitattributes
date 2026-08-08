@@ -1,0 +1,20 @@
+*.sh text eol=lf
+*.py text eol=lf
+*.service text eol=lf
+*.js text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+
+# JSON text files (explicit list, NOT a blanket *.json -- see below)
+anchors.json text eol=lf
+meta.json text eol=lf
+vercel.json text eol=lf
+api/*.json text eol=lf
+
+# Raw binary point-cloud payloads named .json (see README). Must never be
+# text-normalized. A blanket "*.json text" rule would corrupt these, since
+# git-attributes attributes are cumulative per-line and a later "binary"
+# rule does not clear an eol= already set by an earlier matching pattern --
+# so these are deliberately never matched by any "text"/"eol" rule at all.
+cloud_positions.json -text -diff -merge binary
+cloud_colors.json -text -diff -merge binary

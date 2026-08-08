@@ -1,0 +1,17 @@
+[Unit]
+Description=SimRank Live Publisher (UWB position + Pixhawk attitude -> hosted viewer)
+After=uwb-trilaterate.service network-online.target
+Wants=network-online.target
+Requires=uwb-trilaterate.service
+
+[Service]
+Type=simple
+User=__USER__
+ExecStart=/usr/bin/python3 __HOME__/simrank/jetson/jetson_publisher.py --endpoint __ENDPOINT__
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
